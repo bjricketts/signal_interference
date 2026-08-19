@@ -294,73 +294,100 @@ def run_experiment(key: str, c: float = 1.0, poisson: bool = True,
 
 
 # =========================================================================
-# Plotting (Paper A 4-panel style)
+# Plotting (Paper B visual style: nu|CS| / phase / time-lag stack, plus a
+# coherence panel for this work's stochastic extension)
 # =========================================================================
 
-_VLINE = "#b2abd2"
+# Per-experiment colormaps chosen to match Paper B's Figs. 5-8: a single-hue
+# sequential ramp (dark = zero offset -> light = largest) for the one-signed
+# sweeps, and a diverging red-blue map centred on zero for the signed dm sweep.
+_SEQ_CMAP = {"dnu": "Greens", "dDelta": "Blues", "phi": "Oranges"}
+
+X_LIM = (0.1, 10.0)     # frequency axis range, as in Paper B
+_VLINE = "0.55"         # grey dotted centroid marker
 
 
 def _fmt_val(key, val):
-    return f"{val:+.2f}" if key in ("dm",) else f"{val:.2f}"
+    return f"{val:+.2f}" if key == "dm" else f"{val:.2f}"
+
+
+def _colors_for(key, values):
+    """Colours for a sweep, matching Paper B's per-figure palettes."""
+    if key == "dm":  # diverging, centred on zero offset (red -ve, blue +ve)
+        vmax = max((abs(v) for v in values), default=1.0) or 1.0
+        cmap = plt.cm.RdBu
+        cols = []
+        for v in values:
+            if v == 0:
+                cols.append((0.25, 0.25, 0.25, 1.0))   # dark grey so 0 stays visible
+            else:
+                cols.append(cmap(0.5 + 0.42 * (v / vmax)))
+        return cols
+    cmap = getattr(plt.cm, _SEQ_CMAP.get(key, "Greens"))
+    return [cmap(x) for x in np.linspace(0.9, 0.42, len(values))]  # dark -> light
 
 
 def plot_experiment(results, cfg, key, savepath, c=1.0):
-    entries, _ = results, None
-    fig, axes = plt.subplots(4, 1, figsize=(7.2, 10.5), sharex=True,
+    fig, axes = plt.subplots(4, 1, figsize=(6.6, 11.0), sharex=True,
                              gridspec_kw={"hspace": 0})
-    ax_ps, ax_cs, ax_ph, ax_co = axes
-    cmap = plt.cm.viridis(np.linspace(0.12, 0.88, len(results)))
+    ax_mag, ax_ph, ax_tl, ax_co = axes
+    cols = _colors_for(key, [r["val"] for r in results])
+    dashed = (0, (4, 2))
 
-    re_all, im_all = [], []
-    for r, col in zip(results, cmap):
+    tl_an_all = []
+    for r, col in zip(results, cols):
         p = r["prod"]
-        lbl = f'{cfg["sym"]} = {_fmt_val(key, r["val"])}'
-        # PSD (band 1 solid, band 2 dashed)
-        ax_ps.loglog(p["ps1"].freq, p["ps1"].freq * p["ps1"].power, color=col, lw=1.8)
-        ax_ps.loglog(p["ps2"].freq, p["ps2"].freq * p["ps2"].power, color=col, lw=1.4,
-                     ls="--", alpha=0.7)
-        # Cross-spectrum Re/Im
-        re = np.real(p["cs"].power); im = np.imag(p["cs"].power)
-        re_all.append(re); im_all.append(im)
-        ax_cs.plot(p["cs"].freq, re, color=col, lw=1.8)
-        ax_cs.plot(p["cs"].freq, im, color=col, lw=1.6, ls=":")
-        # Phase lag: measured (points+err) with analytic overlay (solid)
-        ax_ph.errorbar(p["cs"].freq, p["lag"], yerr=p["lag_e"], color=col,
-                       lw=1.3, alpha=0.55, elinewidth=0.7, capsize=0)
-        ax_ph.plot(p["cs"].freq, r["an_phase"], color=col, lw=2.2, label=lbl)
-        # Coherence
-        ax_co.semilogx(p["cs"].freq, p["coh"], color=col, lw=1.8,
-                       drawstyle="steps-mid")
+        f = p["cs"].freq
+        two_pi_f = 2 * np.pi * f
+        # Panel 1: nu * |CS(nu)| (measured), log-log
+        ax_mag.plot(f, f * np.abs(p["cs"].power), color=col, lw=1.8)
+        # Panel 2: phase lag -- measured (solid) with analytic prediction (dashed)
+        ax_ph.plot(f, p["lag"], color=col, lw=1.8)
+        ax_ph.plot(f, r["an_phase"], color=col, lw=0.9, ls=dashed, alpha=0.7)
+        # Panel 3: time lag = phase / (2 pi nu), same measured/analytic pairing
+        ax_tl.plot(f, p["lag"] / two_pi_f, color=col, lw=1.8)
+        tl_an = r["an_phase"] / two_pi_f
+        ax_tl.plot(f, tl_an, color=col, lw=0.9, ls=dashed, alpha=0.7)
+        tl_an_all.append(tl_an)
+        # Panel 4: intrinsic coherence (this work's addition to Paper B)
+        ax_co.plot(f, p["coh"], color=col, lw=1.8, drawstyle="steps-mid")
 
     for ax in axes:
-        ax.axvline(REF["nu"], color=_VLINE, ls="--", lw=1.8)
-    ax_ps.set_ylabel(r"$\nu\,P(\nu)$  [(rms/mean)$^2$]")
-    ax_ps.set_title(f'{cfg["title"]}   (stochastic bands, shared fraction c={c:g})',
-                    fontsize=11)
+        ax.axvline(REF["nu"], color=_VLINE, ls=":", lw=1.3)
+        ax.set_xscale("log")
 
-    ax_cs.axhline(0, color="gray", lw=0.5)
-    lt = max(1e-4, 1e-3 * max((np.max(np.abs(a)) for a in re_all + im_all if len(a)),
-                              default=1e-3))
-    ax_cs.set_yscale("symlog", linthresh=lt)
-    ax_cs.set_ylabel("Cross-spectrum")
     from matplotlib.lines import Line2D
-    ax_cs.legend(handles=[Line2D([0], [0], color="gray", lw=1.5, label="Real"),
-                          Line2D([0], [0], color="gray", lw=1.5, ls=":", label="Imag")],
-                 loc="lower left", fontsize=8)
+    handles = [Line2D([0], [0], color=col, lw=2.6, label=_fmt_val(key, r["val"]))
+               for r, col in zip(results, cols)]
+    ncol = 2 if len(results) > 4 else 1
+    ax_mag.legend(handles=handles, title=cfg["sym"], fontsize=8, ncol=ncol,
+                  loc="upper right", framealpha=0.9)
+
+    ax_mag.set_yscale("log")
+    ax_mag.set_ylabel(r"$\nu\,|CS(\nu)|$")
+    ax_mag.set_title(f'{cfg["title"]}   (stochastic bands, c={c:g})', fontsize=10)
 
     ax_ph.axhline(0, color="gray", lw=0.5)
-    ax_ph.set_ylabel("Phase lag [rad]\n(pts=measured, line=analytic)")
-    ax_ph.legend(fontsize=8, ncol=2, loc="upper left", title="band-2 offset")
-    # Auto-tighten the phase range to the analytic feature amplitude.
-    fmask = results[0]["prod"]["cs"].freq <= 20
-    ymax = max((np.nanmax(np.abs(r["an_phase"][fmask])) for r in results), default=0.5)
-    ymax = float(np.clip(ymax * 1.5, 0.3, np.pi))
-    ax_ph.set_ylim(-ymax, ymax)
+    ax_ph.set_ylabel("Phase (rad)")
+
+    ax_tl.axhline(0, color="gray", lw=0.5)
+    ax_tl.set_ylabel("Time-lag (s)")
 
     ax_co.set_ylabel("Intrinsic coherence")
     ax_co.set_ylim(0.0, 1.08)
-    ax_co.set_xlabel("Frequency [Hz]")
-    ax_co.set_xlim(0.1, 20)
+    ax_co.set_xlabel(r"$\nu$ (Hz)")
+    ax_co.set_xlim(*X_LIM)
+
+    # Bound the phase and time-lag panels to the analytic feature amplitude so a
+    # sensible window shows and measured noise spikes are clipped out of view.
+    fmask = (results[0]["prod"]["cs"].freq >= X_LIM[0]) & \
+            (results[0]["prod"]["cs"].freq <= X_LIM[1])
+    p_amp = max((np.nanmax(np.abs(r["an_phase"][fmask])) for r in results), default=0.5)
+    p_amp = float(np.clip(p_amp * 1.5, 0.3, np.pi))
+    ax_ph.set_ylim(-p_amp, p_amp)
+    tl_stack = np.concatenate([t[fmask] for t in tl_an_all]) if tl_an_all else np.array([0.0])
+    tl_amp = float(np.clip(np.nanmax(np.abs(tl_stack)) * 1.6, 1e-3, np.inf))
+    ax_tl.set_ylim(-tl_amp, tl_amp)
 
     fig.align_ylabels(axes)
     fig.savefig(savepath, dpi=150, bbox_inches="tight")

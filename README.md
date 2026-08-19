@@ -59,8 +59,12 @@ Sampling matches the papers: dt = 1/512 s, 1024 s total, 16 s segments.
 ## What it produces
 
 Four inter-band offset experiments (Paper B's Figs. 5–8), each a four-panel
-figure (PSD of both bands / cross-spectrum real and imaginary parts / phase lag
-with analytic overlay / intrinsic coherence):
+figure styled after Paper B — ν·|CS(ν)| magnitude / phase / time-lag / intrinsic
+coherence — with Paper B's per-experiment colormaps (Greens for δν, Blues for
+δΔ, Oranges for φ, diverging red–blue for δm) and a grey dotted line at ν₀. The
+top three panels follow Paper B's layout; in the phase and time-lag panels the
+measured curve is solid and the analytic prediction is dashed. The coherence
+panel is this work's addition, since Paper B is coherent by construction:
 
 | File | Sweep | Paper B analog |
 |------|-------|------------------|
