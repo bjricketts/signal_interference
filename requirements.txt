@@ -1,0 +1,4 @@
+numpy
+scipy
+matplotlib
+stingray>=2.0
